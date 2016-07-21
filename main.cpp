@@ -1,16 +1,42 @@
-#include <iostream>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <unistd.h>
-#include <cstring>
-#include <thread>
 #include <arpa/inet.h>
-#include <fstream>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <unistd.h>
+
+#include <csignal>
+#include <cstring>
+#include <iostream>
+#include <fstream>
 #include <sstream>
+#include <thread>
 
 
 constexpr size_t kBufferSize = 1048576;
+
+
+std::string GetAddressFromHttp(const std::string& request) {
+  size_t pos = request.find("GET");
+  if (pos == std::string::npos) {
+    return std::string();
+  }
+
+  size_t begin = request.find("/", pos);
+  size_t end = request.find_first_of(" !#$%&=:?", begin);
+
+  return request.substr(begin, end - begin);
+}
+
+
+ssize_t GetFileSize(std::string name) {
+//  stat stat_buf;
+//  return stat(name.c_str(), &stat_buf) == 0 ? stat_buf.st_size : -1;
+  std::ifstream file(name, std::ifstream::ate | std::ifstream::binary);
+  if (file.good()) {
+    return file.tellg();
+  }
+  return -1;
+}
 
 
 std::string GetAnswer202(size_t content_length) {
@@ -29,12 +55,6 @@ std::string GetAnswer404() {
       "\r\n";
   return kAns404;
 }
-
-
-
-
-
-
 
 
 class SocketTcpIp {
@@ -77,6 +97,7 @@ class SocketTcpIp {
  private:
   int descriptor_;
 };
+
 
 class Server {
  public:
@@ -158,11 +179,13 @@ class Server {
   uint32_t address_;
 };
 
+
 struct ServerConfuguration {
   uint16_t port;
   uint32_t address;
   std::string directory;
 };
+
 
 ServerConfuguration ParseArgs(int argc, char* const argv[]) {
   static constexpr char kOptions[] = "h:p:d:";
@@ -210,28 +233,6 @@ ServerConfuguration ParseArgs(int argc, char* const argv[]) {
   return config;
 }
 
-std::string GetAddressFromHttp(const std::string& request) {
-  size_t pos = request.find("GET");
-  if (pos == std::string::npos) {
-    return std::string();
-  }
-
-  size_t begin = request.find("/", pos);
-  size_t end = request.find_first_of(" !#$%&=:?", begin);
-
-  return request.substr(begin, end - begin);
-}
-
-
-ssize_t GetFileSize(std::string name) {
-//  stat stat_buf;
-//  return stat(name.c_str(), &stat_buf) == 0 ? stat_buf.st_size : -1;
-  std::ifstream file(name, std::ifstream::ate | std::ifstream::binary);
-  if (file.good()) {
-    return file.tellg();
-  }
-  return -1;
-}
 
 void GetAndProcessRequest(const Server& server, SocketTcpIp&& client) {
   std::string request = server.Receive(client);
@@ -255,7 +256,11 @@ void GetAndProcessRequest(const Server& server, SocketTcpIp&& client) {
   server.Shutdown(client);
 }
 
+
 int main(int argc, char* argv[]) {
+  std::signal(SIGHUP, SIG_IGN);
+  daemon(0, 0);
+
   ServerConfuguration config = ParseArgs(argc, argv);
   Server server(config.port, config.address);
   if (chdir(config.directory.c_str()) < 0) {
